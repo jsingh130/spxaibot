@@ -1,87 +1,91 @@
 import os
 import json
-import pandas as pd
 import yfinance as yf
-from datetime import datetime
+import pandas as pd
 from ta.trend import EMAIndicator
 from ta.volatility import AverageTrueRange
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
-# === SETTINGS ===
-SHEET_ID = "1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE"
-TICKER = "AAPL"  # Change to "^GSPC" for SPX
+# Setup
+TICKER = "AAPL"
+SHEET_ID = "1hn8Bb9SFEmD7y0JkCh1GLSU7ME49oTALtL36b5SVE"
+SHEET_RANGE = "Live Signals!A1"
+CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
-# === AUTHENTICATE GOOGLE SHEETS ===
-creds_data = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
+if not CREDS_JSON:
+    raise ValueError("Missing GOOGLE_CREDENTIALS_JSON in environment variables")
 
-credentials = service_account.Credentials.from_service_account_info(
-    creds_data,
-    scopes=["https://www.googleapis.com/auth/spreadsheets"]
-)
-sheet_service = build("sheets", "v4", credentials=credentials)
+creds_data = json.loads(CREDS_JSON)
+creds = service_account.Credentials.from_service_account_info(creds_data, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+service = build("sheets", "v4", credentials=creds)
 
-# === DOWNLOAD MARKET DATA ===
-print(f"🟡 Downloading data for {TICKER}...")
-df = yf.download(TICKER, interval="5m", period="5d")
-
-if df.empty:
-    print("⚠️ No data returned from yfinance. Exiting.")
-    exit()
-
-# Drop multiindex if present
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.droplevel(0)
-
-# 🔧 Dynamically rename columns based on actual length
-standard_names = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
-df.columns = standard_names[:len(df.columns)]
-
-print("📋 Final columns:", df.columns.tolist())
+# Download recent data
+print("📉 Downloading data for", TICKER)
+df = yf.download(TICKER, period="5d", interval="5m")
 print(f"✅ Downloaded {len(df)} rows")
 
-# === CALCULATE INDICATORS ===
+# Ensure columns are accessible
+df = df[["Open", "High", "Low", "Close", "Adj Close"]]
+print(f"🧩 Final columns: {list(df.columns)}")
+
+# Add indicators
 df["EMA9"] = EMAIndicator(close=df["Close"], window=9).ema_indicator()
 df["EMA21"] = EMAIndicator(close=df["Close"], window=21).ema_indicator()
 df["ATR"] = AverageTrueRange(high=df["High"], low=df["Low"], close=df["Close"]).average_true_range()
 
+# Drop rows with NaNs
 df.dropna(inplace=True)
 
+# Exit if nothing left
 if df.empty:
     print("⚠️ DataFrame is empty after indicator calculations. Exiting.")
     exit()
 
-# === GENERATE SIGNAL ===
+# Latest signal logic
 latest = df.iloc[-1]
-
 direction = "UP" if latest["Close"] > latest["EMA9"] > latest["EMA21"] else "DOWN"
-confidence = 85 if direction == "UP" else 75
-entry = round(latest["Close"], 2)
-sl = round(entry - latest["ATR"], 2) if direction == "UP" else round(entry + latest["ATR"], 2)
-tp = round(entry + 2 * latest["ATR"], 2) if direction == "UP" else round(entry - 2 * latest["ATR"], 2)
-strike = int(round(entry / 5) * 5)
-option_type = "CALL" if direction == "UP" else "PUT"
 
-row = [[
+option_type = "CALL" if direction == "UP" else "PUT"
+strike = round(latest["Close"])
+target = round(latest["Close"] + (2 * latest["ATR"])) if direction == "UP" else round(latest["Close"] - (2 * latest["ATR"]))
+stop = round(latest["Close"] - latest["ATR"]) if direction == "UP" else round(latest["Close"] + latest["ATR"])
+
+signal_row = [
     datetime.now().strftime("%Y-%m-%d %H:%M"),
     TICKER,
     direction,
-    confidence,
-    entry,
-    sl,
-    tp,
+    75,
+    round(latest["Close"], 2),
+    round(stop, 2),
+    round(target, 2),
     option_type,
     strike,
     "0DTE Signal"
-]]
+]
 
-# === SEND TO GOOGLE SHEETS ===
-sheet_service.spreadsheets().values().append(
+# Check if headers are present, if not, insert them
+sheet = service.spreadsheets()
+result = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_RANGE).execute()
+values = result.get("values", [])
+
+if not values:
+    headers = ["Timestamp", "Ticker", "Direction", "Expected % Move", "Entry Price", "Stop", "Target", "Option Type", "Strike", "Notes"]
+    sheet.values().append(
+        spreadsheetId=SHEET_ID,
+        range=SHEET_RANGE,
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body={"values": [headers]}
+    ).execute()
+
+# Send signal to Google Sheet
+sheet.values().append(
     spreadsheetId=SHEET_ID,
-    range="Live Signals!A1",
+    range=SHEET_RANGE,
     valueInputOption="USER_ENTERED",
     insertDataOption="INSERT_ROWS",
-    body={"values": row}
+    body={"values": [signal_row]}
 ).execute()
 
 print("✅ Signal sent to Google Sheet.")
