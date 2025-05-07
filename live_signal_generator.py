@@ -38,7 +38,7 @@ option_type = "CALL" if direction == "UP" else "PUT"
 # Send to Sheet
 row = [[datetime.now().strftime("%Y-%m-%d %H:%M"), "^GSPC", direction, confidence, entry, sl, tp, option_type, strike, "0DTE Signal"]]
 sheet_service.spreadsheets().values().append(
-    spreadsheetId=SHEET_ID,
+    spreadsheetId="1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE",
     range="Live Signals!A1",
     valueInputOption="USER_ENTERED",
     insertDataOption="INSERT_ROWS",
