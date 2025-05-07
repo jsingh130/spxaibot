@@ -24,19 +24,23 @@ sheet_service = build("sheets", "v4", credentials=credentials)
 # === DOWNLOAD MARKET DATA ===
 print(f"🟡 Downloading data for {TICKER}...")
 df = yf.download(TICKER, interval="5m", period="5d")
+
+# 🧼 Flatten multilevel columns from yfinance
+if isinstance(df.columns, pd.MultiIndex):
+    df.columns = df.columns.get_level_values(1)
+
 print(f"✅ Downloaded {len(df)} rows")
 
 if df.empty:
     print("⚠️ No data returned from yfinance. Exiting.")
     exit()
 
-# === CALCULATE INDICATORS (on df directly) ===
+# === CALCULATE INDICATORS ===
 df["EMA9"] = EMAIndicator(close=df["Close"], window=9).ema_indicator()
 df["EMA21"] = EMAIndicator(close=df["Close"], window=21).ema_indicator()
-df["ATR"] = AverageTrueRange(
-    high=df["High"], low=df["Low"], close=df["Close"]
-).average_true_range()
+df["ATR"] = AverageTrueRange(high=df["High"], low=df["Low"], close=df["Close"]).average_true_range()
 
+# Drop rows with NaNs
 df.dropna(inplace=True)
 
 if df.empty:
