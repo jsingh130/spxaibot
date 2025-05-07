@@ -25,21 +25,20 @@ sheet_service = build("sheets", "v4", credentials=credentials)
 print(f"🟡 Downloading data for {TICKER}...")
 df = yf.download(TICKER, interval="5m", period="5d")
 
-# ✅ Force rename columns to standard OHLCV if needed
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.droplevel(0)
-
-# If 'Close' still not found, forcefully rename known structure
-expected = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
-if not all(col in df.columns for col in expected):
-    df.columns = expected
-
-print("📋 Column names:", df.columns.tolist())
-print(f"✅ Downloaded {len(df)} rows")
-
 if df.empty:
     print("⚠️ No data returned from yfinance. Exiting.")
     exit()
+
+# Drop multiindex if present
+if isinstance(df.columns, pd.MultiIndex):
+    df.columns = df.columns.droplevel(0)
+
+# 🔧 Dynamically rename columns based on actual length
+standard_names = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
+df.columns = standard_names[:len(df.columns)]
+
+print("📋 Final columns:", df.columns.tolist())
+print(f"✅ Downloaded {len(df)} rows")
 
 # === CALCULATE INDICATORS ===
 df["EMA9"] = EMAIndicator(close=df["Close"], window=9).ema_indicator()
