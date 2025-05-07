@@ -10,6 +10,7 @@ from googleapiclient.discovery import build
 
 # === SETTINGS ===
 SHEET_ID = "1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE"
+TICKER = "AAPL"
 
 # === AUTHENTICATE GOOGLE SHEETS ===
 creds_data = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
@@ -21,28 +22,27 @@ credentials = service_account.Credentials.from_service_account_info(
 sheet_service = build("sheets", "v4", credentials=credentials)
 
 # === DOWNLOAD MARKET DATA ===
-df = yf.download("AAPL", interval="5m", period="5d")
-# df.dropna(inplace=True)
-# Exit early if no data
+print(f"🟡 Downloading data for {TICKER}...")
+df = yf.download(TICKER, interval="5m", period="5d")
+print(f"✅ Downloaded {len(df)} rows")
+print(df.head())
+
 if df.empty:
     print("⚠️ No data returned from yfinance. Exiting.")
     exit()
 
 # === CLEAN AND PREP DATA ===
-# Flatten input columns
 close = pd.Series(df["Close"].values.flatten())
 high = pd.Series(df["High"].values.flatten())
 low = pd.Series(df["Low"].values.flatten())
 
-# Compute indicators
 df["EMA9"] = EMAIndicator(close, 9).ema_indicator()
 df["EMA21"] = EMAIndicator(close, 21).ema_indicator()
 df["ATR"] = AverageTrueRange(high, low, close).average_true_range()
 
-# Drop rows with missing indicator data
-df.dropna(inplace=True)
+# 🔧 TEMPORARY: Skip dropna to test
+# df.dropna(inplace=True)
 
-# Exit if indicators drop all rows
 if df.empty:
     print("⚠️ DataFrame is empty after indicator calculations. Exiting.")
     exit()
@@ -58,10 +58,9 @@ tp = round(entry + 2 * latest["ATR"], 2) if direction == "UP" else round(entry -
 strike = int(round(entry / 5) * 5)
 option_type = "CALL" if direction == "UP" else "PUT"
 
-# === FORMAT & SEND TO SHEET ===
 row = [[
     datetime.now().strftime("%Y-%m-%d %H:%M"),
-    "^GSPC",
+    TICKER,
     direction,
     confidence,
     entry,
@@ -72,6 +71,7 @@ row = [[
     "0DTE Signal"
 ]]
 
+# === SEND TO GOOGLE SHEETS ===
 sheet_service.spreadsheets().values().append(
     spreadsheetId=SHEET_ID,
     range="Live Signals!A1",
