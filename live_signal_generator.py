@@ -22,7 +22,7 @@ sheet_service = build("sheets", "v4", credentials=credentials)
 
 # === DOWNLOAD MARKET DATA ===
 df = yf.download("AAPL", interval="5m", period="5d")
-
+# df.dropna(inplace=True)
 # Exit early if no data
 if df.empty:
     print("⚠️ No data returned from yfinance. Exiting.")
