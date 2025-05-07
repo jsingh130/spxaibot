@@ -1,1 +1,0 @@
-python3 live_signal_generator.py
