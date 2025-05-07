@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 
 # === SETTINGS ===
 SHEET_ID = "1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE"
-TICKER = "AAPL"  # Change back to "^GSPC" for SPX
+TICKER = "AAPL"  # Change to "^GSPC" for SPX
 
 # === AUTHENTICATE GOOGLE SHEETS ===
 creds_data = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
@@ -25,10 +25,16 @@ sheet_service = build("sheets", "v4", credentials=credentials)
 print(f"🟡 Downloading data for {TICKER}...")
 df = yf.download(TICKER, interval="5m", period="5d")
 
-# Drop ticker symbol level from columns (AAPL -> Open, High, etc.)
+# ✅ Force rename columns to standard OHLCV if needed
 if isinstance(df.columns, pd.MultiIndex):
     df.columns = df.columns.droplevel(0)
 
+# If 'Close' still not found, forcefully rename known structure
+expected = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']
+if not all(col in df.columns for col in expected):
+    df.columns = expected
+
+print("📋 Column names:", df.columns.tolist())
 print(f"✅ Downloaded {len(df)} rows")
 
 if df.empty:
