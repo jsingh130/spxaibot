@@ -1,96 +1,73 @@
-import os
-import json
+
 import yfinance as yf
 import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
-from ta.trend import EMAIndicator
-from ta.volatility import AverageTrueRange
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
 
-# === SETTINGS ===
-TICKER = "AAPL"  # Change to "^GSPC" for SPX
-SHEET_ID = "1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE"
-SHEET_RANGE = "Live Signals!A1"
-CREDS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+# Setup Google Sheets API
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
+client = gspread.authorize(creds)
 
-# === AUTHENTICATE GOOGLE SHEETS ===
-if not CREDS_JSON:
-    raise ValueError("Missing GOOGLE_CREDENTIALS_JSON in environment variables")
+# Spreadsheet setup
+spreadsheet_id = "1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE"
+sheet = client.open_by_key(spreadsheet_id).sheet1
 
-creds_data = json.loads(CREDS_JSON)
-credentials = service_account.Credentials.from_service_account_info(
-    creds_data, scopes=["https://www.googleapis.com/auth/spreadsheets"]
-)
-sheet_service = build("sheets", "v4", credentials=credentials)
+# Tickers to process
+tickers = ["AAPL", "SPY", "QQQ", "SPX"]
 
-# === DOWNLOAD MARKET DATA ===
-print(f"🟡 Downloading data for {TICKER}...")
-df = yf.download(TICKER, interval="5m", period="5d")
+def fetch_data(ticker):
+    df = yf.download(ticker, period="5d", interval="5m")
+    df = df[["Open", "High", "Low", "Close", "Adj Close"]]
+    return df
 
-# Drop ticker level from multi-index columns if present
-if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.droplevel(0)
+def calculate_signal(df):
+    df["EMA9"] = df["Close"].ewm(span=9, adjust=False).mean()
+    df["EMA21"] = df["Close"].ewm(span=21, adjust=False).mean()
+    latest = df.iloc[-1]
 
-# Rename columns safely
-standard_names = ["Open", "High", "Low", "Close", "Adj Close", "Volume"]
-df.columns = standard_names[:len(df.columns)]
+    direction = "UP" if latest["Close"] > latest["EMA9"] > latest["EMA21"] else "DOWN"
+    signal = {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Direction": direction,
+        "Confidence": 75,
+        "Entry": round(latest["Close"], 2),
+        "Stop": round(latest["High"], 2) if direction == "DOWN" else round(latest["Low"], 2),
+        "Target": round(latest["Close"] - 1.5, 2) if direction == "DOWN" else round(latest["Close"] + 1.5, 2),
+        "Option Type": "PUT" if direction == "DOWN" else "CALL",
+        "Strike": round(latest["Close"]),
+        "Notes": "0DTE Signal"
+    }
+    return signal
 
-print("📋 Final columns:", df.columns.tolist())
-print(f"✅ Downloaded {len(df)} rows")
+def send_to_sheet(ticker, signal):
+    row = [
+        signal["Timestamp"],
+        ticker,
+        signal["Direction"],
+        signal["Confidence"],
+        signal["Entry"],
+        signal["Stop"],
+        signal["Target"],
+        signal["Option Type"],
+        signal["Strike"],
+        signal["Notes"]
+    ]
+    sheet.append_row(row, value_input_option="USER_ENTERED")
 
-# === CALCULATE INDICATORS ===
-df["EMA9"] = EMAIndicator(close=df["Close"], window=9).ema_indicator()
-df["EMA21"] = EMAIndicator(close=df["Close"], window=21).ema_indicator()
-df["ATR"] = AverageTrueRange(high=df["High"], low=df["Low"], close=df["Close"]).average_true_range()
+def main():
+    for ticker in tickers:
+        try:
+            df = fetch_data(ticker)
+            if not df.empty:
+                signal = calculate_signal(df)
+                send_to_sheet(ticker, signal)
+                print(f"✅ {ticker} signal sent.")
+            else:
+                print(f"⚠️ No data for {ticker}.")
+        except Exception as e:
+            print(f"❌ Error processing {ticker}: {e}")
 
-df.dropna(inplace=True)
-if df.empty:
-    print("⚠️ DataFrame is empty after indicator calculations. Exiting.")
-    exit()
-
-# === GENERATE SIGNAL ===
-latest = df.iloc[-1]
-direction = "UP" if latest["Close"] > latest["EMA9"] > latest["EMA21"] else "DOWN"
-confidence = 85 if direction == "UP" else 75
-entry = round(latest["Close"], 2)
-sl = round(entry - latest["ATR"], 2) if direction == "UP" else round(entry + latest["ATR"], 2)
-tp = round(entry + 2 * latest["ATR"], 2) if direction == "UP" else round(entry - 2 * latest["ATR"], 2)
-strike = int(round(entry / 5) * 5)
-option_type = "CALL" if direction == "UP" else "PUT"
-
-row = [[
-    datetime.now().strftime("%Y-%m-%d %H:%M"),
-    TICKER,
-    direction,
-    confidence,
-    entry,
-    sl,
-    tp,
-    option_type,
-    strike,
-    "0DTE Signal"
-]]
-
-# === CHECK HEADERS & SEND DATA ===
-sheet = sheet_service.spreadsheets()
-existing = sheet.values().get(spreadsheetId=SHEET_ID, range=SHEET_RANGE).execute()
-if not existing.get("values"):
-    headers = ["Timestamp", "Ticker", "Direction", "Confidence", "Entry", "Stop", "Target", "Option Type", "Strike", "Notes"]
-    sheet.values().append(
-        spreadsheetId=SHEET_ID,
-        range=SHEET_RANGE,
-        valueInputOption="USER_ENTERED",
-        insertDataOption="INSERT_ROWS",
-        body={"values": [headers]}
-    ).execute()
-
-sheet.values().append(
-    spreadsheetId=SHEET_ID,
-    range=SHEET_RANGE,
-    valueInputOption="USER_ENTERED",
-    insertDataOption="INSERT_ROWS",
-    body={"values": row}
-).execute()
-
-print("✅ Signal sent to Google Sheet.")
+if __name__ == "__main__":
+    main()
