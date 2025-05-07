@@ -1,0 +1,1 @@
+worker: python live_signal_generator.py
