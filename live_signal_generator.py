@@ -21,7 +21,7 @@ credentials = service_account.Credentials.from_service_account_info(
 sheet_service = build("sheets", "v4", credentials=credentials)
 
 # === DOWNLOAD MARKET DATA ===
-df = yf.download("^GSPC", interval="5m", period="1d")
+df = yf.download("AAPL", interval="5m", period="5d")
 
 # Exit early if no data
 if df.empty:
