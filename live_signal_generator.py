@@ -25,23 +25,19 @@ sheet_service = build("sheets", "v4", credentials=credentials)
 print(f"🟡 Downloading data for {TICKER}...")
 df = yf.download(TICKER, interval="5m", period="5d")
 print(f"✅ Downloaded {len(df)} rows")
-print(df.head())
 
 if df.empty:
     print("⚠️ No data returned from yfinance. Exiting.")
     exit()
 
-# === CLEAN AND PREP DATA ===
-close = pd.Series(df["Close"].values.flatten())
-high = pd.Series(df["High"].values.flatten())
-low = pd.Series(df["Low"].values.flatten())
+# === CALCULATE INDICATORS (on df directly) ===
+df["EMA9"] = EMAIndicator(close=df["Close"], window=9).ema_indicator()
+df["EMA21"] = EMAIndicator(close=df["Close"], window=21).ema_indicator()
+df["ATR"] = AverageTrueRange(
+    high=df["High"], low=df["Low"], close=df["Close"]
+).average_true_range()
 
-df["EMA9"] = EMAIndicator(close, 9).ema_indicator()
-df["EMA21"] = EMAIndicator(close, 21).ema_indicator()
-df["ATR"] = AverageTrueRange(high, low, close).average_true_range()
-
-# 🔧 TEMPORARY: Skip dropna to test
-# df.dropna(inplace=True)
+df.dropna(inplace=True)
 
 if df.empty:
     print("⚠️ DataFrame is empty after indicator calculations. Exiting.")
