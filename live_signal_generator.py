@@ -10,7 +10,7 @@ from googleapiclient.discovery import build
 
 # === SETTINGS ===
 SHEET_ID = "1hn8Bb9SFEmDTyoMJkCshlGUST2ME49oTALtL36b5SVE"
-TICKER = "AAPL"
+TICKER = "AAPL"  # Change back to "^GSPC" for SPX
 
 # === AUTHENTICATE GOOGLE SHEETS ===
 creds_data = json.loads(os.getenv("GOOGLE_CREDENTIALS_JSON"))
@@ -25,9 +25,9 @@ sheet_service = build("sheets", "v4", credentials=credentials)
 print(f"🟡 Downloading data for {TICKER}...")
 df = yf.download(TICKER, interval="5m", period="5d")
 
-# 🧼 Flatten multilevel columns from yfinance
+# Drop ticker symbol level from columns (AAPL -> Open, High, etc.)
 if isinstance(df.columns, pd.MultiIndex):
-    df.columns = df.columns.get_level_values(1)
+    df.columns = df.columns.droplevel(0)
 
 print(f"✅ Downloaded {len(df)} rows")
 
@@ -40,7 +40,6 @@ df["EMA9"] = EMAIndicator(close=df["Close"], window=9).ema_indicator()
 df["EMA21"] = EMAIndicator(close=df["Close"], window=21).ema_indicator()
 df["ATR"] = AverageTrueRange(high=df["High"], low=df["Low"], close=df["Close"]).average_true_range()
 
-# Drop rows with NaNs
 df.dropna(inplace=True)
 
 if df.empty:
