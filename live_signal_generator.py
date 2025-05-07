@@ -23,7 +23,10 @@ df = yf.download("^GSPC", interval="5m", period="1d")
 close = df["Close"].values.flatten()
 df["EMA9"] = EMAIndicator(pd.Series(df["Close"].values.flatten()), 9).ema_indicator()
 df["EMA21"] = EMAIndicator(pd.Series(df["Close"].values.flatten()), 21).ema_indicator()
-df["ATR"] = AverageTrueRange(df["High"], df["Low"], df["Close"]).average_true_range()
+high = pd.Series(df["High"].values.flatten())
+low = pd.Series(df["Low"].values.flatten())
+close = pd.Series(df["Close"].values.flatten())
+df["ATR"] = AverageTrueRange(high, low, close).average_true_range()
 df.dropna(inplace=True)
 
 # Signal logic
